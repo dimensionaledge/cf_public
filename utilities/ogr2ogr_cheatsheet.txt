@@ -1,0 +1,7 @@
+ERROR 1: INSERT command for new feature failed.
+ERROR:  numeric field overflow
+DETAIL:  A field with precision 19, scale 11 must round to an absolute value less than 10^8.
+
+Solved by -lco PRECISION=NO 
+
+ogr2ogr -f "PostgreSQL" PG:"host=$host user=$username password=$password dbname=$dbname" mydata.shp -nln  mylayername -s_srs EPSG:3577 -t_srs EPSG:3577 -a_srs EPSG:3577 -nlt POLYGON -overwrite -lco PRECISION=NO 

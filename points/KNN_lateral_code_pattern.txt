@@ -1,0 +1,26 @@
+select
+   o.ogc_fid, lat.dest, lat.dist
+from
+   jtw.nsw_tz_centroids as o
+   , lateral (
+       select
+           o.ogc_fid as orig
+           , st_distance(d.wkb_geometry, o.wkb_geometry) as dist
+           , d.ogc_fid as dest
+       from
+           jtw.nsw_tz_centroids as d
+       where d.ogc_fid <> o.ogc_fid
+       order by
+           d.wkb_geometry <-> o.wkb_geometry -- forbidden without lateral
+       limit 3
+   ) as lat
+
+order by
+   o.ogc_fid, lat.dist asc;
+
+SELECT p1.id, p2.id, v1, v2
+FROM polygons p1, polygons p2,
+     LATERAL vertices(p1.poly) v1,
+     LATERAL vertices(p2.poly) v2
+WHERE (v1 <-> v2) < 10 AND p1.id != p2.id;
+

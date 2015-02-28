@@ -1,2 +1,4 @@
-# cf_public
-Publicly accessible code foundry of Dimensional Edge
+cf_public
+=========
+
+Public code foundry of Dimensional Edge
