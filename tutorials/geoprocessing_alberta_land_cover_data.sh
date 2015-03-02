@@ -1,12 +1,12 @@
 #!/bin/bash
-# A tutorial that introduces the concepts of vector tiling and Map Reduce in PostGIS
+# Code for geoprocessing Alberta land cover data
 # Written by: mark[at]dimensionaledge[dot]com
 # Licence: GNU GPL version 3.0
 # Start timer
 START_T1=$(date +%s)
 
 # DB Connection Settings
-dbsettings="/mnt/data/common/repos/cf_private/settings/current.sh"
+dbsettings="/mnt/data/common/repos/cf_private/settings/abmi.sh"
 export dbsettings
 source $dbsettings
 
@@ -15,40 +15,69 @@ source $dbsettings
 #######################################
 # bash function for downloading and ingesting required data into PostgreSQL
 fn_getdata() {
-wget "http://www.abs.gov.au/ausstats/subscriber.nsf/log?openagent&1270055001_sa2_2011_aust_shape.zip&1270.0.55.001&Data%20Cubes&7130A5514535C5FCCA257801000D3FBD&0&July%202011&23.12.2010&Latest" -O sa211.zip
-unzip sa211.zip
+#http://www.abmi.ca/home/data/gis-data/land-cover-download.html
+# ftp to download the data
+unzip ABMIw2wLCV2010v10.zip
 # Load dataset into PostgreSQL
-ogr2ogr -f "PostgreSQL" PG:"host=$host user=$username password=$password dbname=$dbname" SA2_2011_AUST.shp -nln  abs_sa211_multi -s_srs EPSG:4283 -t_srs EPSG:3577 -a_srs EPSG:3577 -nlt MULTIPOLYGON -overwrite
+ogr2ogr -f "PostgreSQL" PG:"dbname=$dbname user=$username password=$password" ABMIw2wLCV2010_v10.gdb
 }
 # end of bash function
 # call the bash function or comment # to skip
 #fn_getdata 
 
-# Create three additional PostGIS tables (with indexes) representing the union and dumped constituents of all SA2 geometries
+# Create PostGIS tables (with indexes) for the dumped polygons and their rings
 SQL=$(cat<<EOF 	 	
 -------------------------	 	 
 ------- SQL BLOCK -------	 	 
 -------------------------	 	 
-DROP TABLE IF EXISTS abs_sa211_dumped;	 	 
-CREATE TABLE abs_sa211_dumped AS	 	 
-SELECT row_number() over () as ogc_fid, sa2_main11::text as poly_id, (ST_Dump(wkb_geometry)).geom::geometry(Polygon, 3577) as wkb_geometry FROM abs_sa211_multi;	 	 
-CREATE INDEX abs_sa211_dumped_geom_idx ON abs_sa211_dumped USING GIST(wkb_geometry);	 	 
+DROP TABLE IF EXISTS landcover_dumped_34;	 	 
+CREATE TABLE landcover_dumped_34 (
+fid serial,
+ogc_fid integer,
+wkb_geometry geometry(Polygon, 3400),
+lc_class integer,
+mod_ty text,
+shape_length float8,
+shape_area float8
+);
 
-DROP TABLE IF EXISTS abs_aus11_multi;	 	 
-CREATE TABLE abs_aus11_multi AS	 	 
-SELECT 1 as ogc_fid, ST_Multi(ST_Union(wkb_geometry))::geometry(Multipolygon, 3577) as wkb_geometry FROM abs_sa211;	 	 
-CREATE INDEX abs_aus11_multi_geom_idx ON abs_aus11_multi USING GIST(wkb_geometry);	 	 
+INSERT INTO landcover_dumped_34
+SELECT
+NEXTVAL('landcover_dumped_34_fid_seq'),
+ogc_fid,
+(ST_Dump(wkb_geometry)).geom,
+lc_class,
+mod_ty,
+shape_length,
+shape_area
+FROM lancover_polygons_2010 WHERE lc_class = 34;
 
-DROP TABLE IF EXISTS abs_aus11_dumped;	 	 
-CREATE TABLE abs_aus11_dumped AS	 	 
-SELECT row_number() over () as ogc_fid, (ST_Dump(wkb_geometry)).geom::geometry(Polygon, 3577) as wkb_geometry FROM abs_aus11_multi;	 	 
-CREATE INDEX abs_aus11_dumped_geom_idx ON abs_aus11_dumped USING GIST(wkb_geometry);	 	 
+DROP TABLE IF EXISTS landcover_dumped_34_rings;	 	 
+CREATE TABLE landcover_dumped_34_rings (
+fid serial,
+ogc_fid integer,
+path integer,
+wkb_geometry geometry(Polygon, 3400)
+);
+
+INSERT INTO landcover_dumped_34_rings
+WITH s AS (SELECT ogc_fid, (ST_DumpRings(wkb_geometry)).path as path, ST_Buffer(ST_SnapToGrid((ST_DumpRings(wkb_geometry)).geom,0.1),0) as the_geom FROM  landcover_dumped_34)  --SNAP and BUFFER TO MAKEVALID
+SELECT
+NEXTVAL('landcover_dumped_34_rings_fid_seq'),
+ogc_fid,
+path[1],
+the_geom
+FROM s;
+
+CREATE INDEX landcover_dumped_34_rings_wkb_geometry_idx ON landcover_dumped_34_rings USING GIST(wkb_geometry);
+ANALYZE landcover_dumped_34_rings;
+
 -------------------------	 	 
 EOF
 )
 echo "$SQL"  # comment to suppress printing
 # execute SQL STATEMENT or comment # to skip		 	 
-#psql -U $username -d $dbname -c "$SQL"  ### alternatively, comment out line with single '#' to skip this step
+psql -U $username -d $dbname -c "$SQL"  ### alternatively, comment out line with single '#' to skip this step
 
 #######################################
 
@@ -64,14 +93,16 @@ wget https://raw.githubusercontent.com/dimensionaledge/cf_public/master/shapes/D
 for i in *.sql; do
 psql -U $username -d $dbname -f $i
 done
+
 SQL=$(cat<<EOF 	 	
 -------------------------	 	 
 ------- SQL BLOCK -------	 	 
 -------------------------
-DROP TABLE IF EXISTS regular_grid_32k;
-CREATE TABLE regular_grid_32k AS (
-WITH s AS (SELECT DE_RegularGrid(ST_Envelope(wkb_geometry),32000) as wkb_geometry FROM abs_aus11_multi)
-SELECT row_number() over() as tid, wkb_geometry::geometry(Polygon, 3577) FROM s);
+DROP TABLE IF EXISTS regular_grid_2k;
+CREATE TABLE regular_grid_2k AS (
+WITH s AS (SELECT DE_RegularGrid(ST_Envelope(ST_Collect(wkb_geometry)),2000) as wkb_geometry FROM abmiw2wlcv_48tiles)
+SELECT row_number() over() as tid, wkb_geometry::geometry(Polygon, 3400) FROM s);
+
 -------------------------	 	 
 EOF
 )
@@ -82,7 +113,7 @@ psql -U $username -d $dbname -c "$SQL"
 # end of bash function
 
 # call the bash function or comment # to skip
-#fn_generategrid 
+fn_generategrid 
 
 #######################################
 
@@ -97,7 +128,7 @@ DROP TABLE IF EXISTS vector_tiles;
 CREATE TABLE vector_tiles (
 fid serial,
 tid integer,
-wkb_geometry geometry(Multipolygon, 3577),
+wkb_geometry geometry(Multipolygon, 3400),
 fcat integer
 );
 ------------------------- 
@@ -121,69 +152,63 @@ SQL=$(cat<<EOF
 -------------------------
 INSERT INTO vector_tiles
 WITH
-fcat0 AS (
+f0 AS (
 		SELECT
 		tid,
 		wkb_geometry as the_geom
-		FROM regular_grid_32k
+		FROM regular_grid_2k
 		WHERE tid >= $1 AND tid < $2
 		),
-fcat1 AS (
+f1_p0 AS (
 		SELECT
-		fcat0.tid,
-		CASE WHEN ST_Within(fcat0.the_geom,rt.wkb_geometry) THEN fcat0.the_geom
-		ELSE ST_Intersection(fcat0.the_geom,rt.wkb_geometry) END as the_geom
-		FROM fcat0, $3 as rt
-		WHERE ST_Intersects(fcat0.the_geom, rt.wkb_geometry) AND fcat0.the_geom && rt.wkb_geometry
+		f0.tid,
+		CASE WHEN ST_Within(f0.the_geom,rt.wkb_geometry) THEN f0.the_geom
+		ELSE ST_Intersection(f0.the_geom,rt.wkb_geometry) END as the_geom
+		FROM f0, $3 as rt
+		WHERE ST_Intersects(f0.the_geom, rt.wkb_geometry) AND f0.the_geom && rt.wkb_geometry AND rt.path = 0
 		),
-fcat1u AS (
+f1_p0u AS (
 		SELECT
 		tid,
 		ST_Union(the_geom) as the_geom
-		FROM fcat1
+		FROM f1_p0
 		GROUP BY tid
 		),
-fcat2 AS (
+f1_p1 AS (
 		SELECT
-		fcat0.tid,
-		CASE WHEN ST_IsEmpty(ST_Difference(fcat0.the_geom,fcat1u.the_geom)) THEN NULL
-		ELSE ST_Difference(fcat0.the_geom,fcat1u.the_geom) END as the_geom
-		FROM fcat0, fcat1u
-		WHERE fcat0.tid = fcat1u.tid
+		f0.tid,
+		CASE WHEN ST_Within(f0.the_geom,rt.wkb_geometry) THEN f0.the_geom
+		ELSE ST_Intersection(f0.the_geom,rt.wkb_geometry)
+		END as the_geom
+		FROM f0, $3 as rt
+		WHERE ST_Intersects(f0.the_geom, rt.wkb_geometry) AND f0.the_geom && rt.wkb_geometry AND rt.path > 0
+		),
+f1_p1u AS (
+		SELECT
+		tid,
+		ST_Union(the_geom) as the_geom
+		FROM f1_p1
+		GROUP BY tid
+		),
+f2 AS (
+		SELECT
+		f1_p0u.tid,
+		CASE WHEN  f1_p1u.tid IS NULL THEN f1_p0u.the_geom
+		WHEN ST_IsEmpty(ST_Difference(f1_p0u.the_geom,f1_p1u.the_geom)) THEN NULL
+		ELSE ST_Difference(f1_p0u.the_geom,f1_p1u.the_geom)
+		END as the_geom
+		FROM f1_p0u LEFT JOIN  f1_p1u
+		ON f1_p0u.tid = f1_p1u.tid
 		)
 ------------------------
----- unclipped tile ----
+---- result ----
 ------------------------
-SELECT
-NEXTVAL('vector_tiles_fid_seq'),
-tid,
-ST_Multi(the_geom),
-0
-FROM fcat0
-WHERE the_geom IS NOT NULL
--------------------------
-UNION ALL
--------------------------
-----  land features  ----
--------------------------
 SELECT
 NEXTVAL('vector_tiles_fid_seq'),
 tid,
 ST_Multi(the_geom),
 1
-FROM fcat1u
-WHERE the_geom IS NOT NULL
--------------------------
-UNION ALL
--------------------------
----- water features  ----
--------------------------
-SELECT
-NEXTVAL('vector_tiles_fid_seq'),
-tid,
-ST_Multi(the_geom),
-2
-FROM fcat2
+FROM f2
 WHERE the_geom IS NOT NULL;
 -------------------------
 EOF
@@ -207,14 +232,8 @@ SQL=$(cat<<EOF
 -------------------------	 	 
 ------- SQL BLOCK -------	 	 
 -------------------------
--- create joblist where block size = 24321 tiles (i.e. entire table processed on 1 CPU)
-COPY (SELECT i as lower, i+24321 as upper FROM generate_series(1,24321,24321) i) TO STDOUT WITH CSV;
-
--- create joblist where block size = 1 tile (i.e. each tile processed individually)
---COPY (SELECT i as lower, i+1 as upper FROM generate_series(1,24321,1) i) TO STDOUT WITH CSV;
-
--- create joblist where block size = 5 tiles (i.e. tiles processed in batches of 100)
---COPY (SELECT i as lower, i+100 as upper FROM generate_series(1,24321,100) i) TO STDOUT WITH CSV; 	 
+-- create joblist where block size = 1000 tiles (i.e. tiles processed in batches of 1000)
+COPY (SELECT i as lower, i+1000 as upper FROM generate_series(1,250000,1000) i) TO STDOUT WITH CSV; 	 
 -------------------------
 EOF
 )	 	 
@@ -227,7 +246,7 @@ psql -U $username -d $dbname -c "$SQL" > joblist.csv
 #######################################
 ##########  EXECUTE JOBS  ###########
 #######################################
-cat joblist.csv | parallel --colsep ',' fn_worker {1} {2} abs_aus11_multi
+cat joblist.csv | parallel --colsep ',' fn_worker {1} {2} landcover_dumped_34_rings
 wait
 #######################################
 
