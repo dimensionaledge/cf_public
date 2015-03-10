@@ -41,9 +41,9 @@ wkb_geometry geometry(Point,4326),
 name character varying
 );
 
-INSERT INTO world cities SELECT NEXTVAL('world_cities_ogc_fid_seq'), ST_SetSRID(ST_MakePoint(-118.408530, 33.941625),4326), 'Los Angeles';
-INSERT INTO world cities SELECT NEXTVAL('world_cities_ogc_fid_seq'), ST_SetSRID(ST_MakePoint(151.175276, -33.939878),4326), 'Sydney';
-INSERT INTO world cities SELECT NEXTVAL('world_cities_ogc_fid_seq'), ST_SetSRID(ST_MakePoint(140.392882, 35.771978),4326), 'Tokyo';
+INSERT INTO world_cities SELECT NEXTVAL('world_cities_ogc_fid_seq'), ST_SetSRID(ST_MakePoint(-118.408530, 33.941625),4326), 'Los Angeles';
+INSERT INTO world_cities SELECT NEXTVAL('world_cities_ogc_fid_seq'), ST_SetSRID(ST_MakePoint(151.175276, -33.939878),4326), 'Sydney';
+INSERT INTO world_cities SELECT NEXTVAL('world_cities_ogc_fid_seq'), ST_SetSRID(ST_MakePoint(140.392882, 35.771978),4326), 'Tokyo';
 
 -------------------------
 EOF
