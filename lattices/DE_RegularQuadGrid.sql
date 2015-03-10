@@ -47,6 +47,3 @@ RETURN QUERY EXECUTE
 
 END;
 $$ LANGUAGE 'plpgsql' VOLATILE;
-
-
-
