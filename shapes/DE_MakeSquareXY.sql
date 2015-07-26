@@ -8,10 +8,10 @@
 ---------------------------------------------------------------------------
 -- Usage Example:
 ---------------------------------------------------------------------------
--- SELECT DE_MakeSquareXY(0,0,3577,10000);
+-- SELECT DE_MakeSquareXY(0,0,10000,3577);
 ---------------------------------------------------------------------------
 
-CREATE OR REPLACE FUNCTION DE_MakeSquareXY(x FLOAT, y FLOAT, side FLOAT, srid FLOAT)
+CREATE OR REPLACE FUNCTION DE_MakeSquareXY(x FLOAT, y FLOAT, side FLOAT, srid INTEGER)
 RETURNS GEOMETRY
 AS $$
 SELECT ST_SetSRID(ST_MakePolygon(ST_MakeLine(
